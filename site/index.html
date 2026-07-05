@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ORBIS — Centre de veille mondiale</title>
+  <meta name="description" content="ORBIS : tableau de bord de veille mondiale en temps réel — séismes, catastrophes naturelles, actualités, marchés, météo et suivi de l'ISS.">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ═══════════ BARRE SUPÉRIEURE ═══════════ -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <ellipse cx="16" cy="16" rx="13" ry="5" fill="none" stroke="currentColor" stroke-width="1" opacity=".55"/>
+        <circle cx="27.5" cy="12" r="2.4" fill="var(--amber)" stroke="none"/>
+      </svg>
+      <div class="brand-text">
+        <span class="brand-name">ORBIS</span>
+        <span class="brand-sub">Centre de veille mondiale</span>
+      </div>
+    </div>
+
+    <div class="top-utc" title="Temps universel coordonné">
+      <span class="utc-label">UTC</span>
+      <span class="utc-time" id="utc-clock">--:--:--</span>
+      <span class="utc-date" id="utc-date">—</span>
+    </div>
+
+    <div class="top-pulse" id="pulse-widget" title="Indicateur synthétique expérimental combinant sismicité, catastrophes ouvertes, volatilité des marchés et volume d'actualités de crise.">
+      <svg viewBox="0 0 64 36" class="pulse-gauge" aria-hidden="true">
+        <path d="M6 32 A26 26 0 0 1 58 32" fill="none" stroke="var(--line-strong)" stroke-width="5" stroke-linecap="round"/>
+        <path id="pulse-arc" d="M6 32 A26 26 0 0 1 58 32" fill="none" stroke="var(--teal)" stroke-width="5" stroke-linecap="round" stroke-dasharray="82" stroke-dashoffset="82"/>
+      </svg>
+      <div class="pulse-text">
+        <span class="pulse-value" id="pulse-value">—</span>
+        <span class="pulse-label" id="pulse-label">Pouls planétaire</span>
+      </div>
+    </div>
+
+    <div class="top-actions">
+      <button class="icon-btn" id="btn-news-lang" title="Basculer les actualités français / international" aria-label="Langue des actualités">FR</button>
+      <button class="icon-btn" id="btn-refresh" title="Tout actualiser" aria-label="Tout actualiser">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 1.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════ TICKER MARCHÉS ═══════════ -->
+  <div class="ticker-wrap" aria-label="Bandeau des marchés">
+    <div class="ticker-tag">Marchés</div>
+    <div class="ticker" id="ticker"><div class="ticker-track" id="ticker-track"><span class="ticker-loading">Connexion aux flux de marché…</span></div></div>
+  </div>
+
+  <!-- ═══════════ BANDEAU ALERTE ═══════════ -->
+  <div class="alert-banner" id="alert-banner" hidden role="alert"></div>
+
+  <!-- ═══════════ GRILLE PRINCIPALE ═══════════ -->
+  <main class="grid">
+
+    <!-- CARTE -->
+    <section class="panel p-map" id="panel-map">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Théâtre mondial</h2>
+        <div class="panel-tools">
+          <span class="updated" id="map-updated"></span>
+          <button class="tool-btn" id="map-zoom-in" title="Zoomer" aria-label="Zoomer">+</button>
+          <button class="tool-btn" id="map-zoom-out" title="Dézoomer" aria-label="Dézoomer">−</button>
+          <button class="tool-btn" id="map-reset" title="Vue globale" aria-label="Vue globale">⌂</button>
+        </div>
+      </header>
+      <div class="map-stage" id="map-stage">
+        <div class="map-loading" id="map-loading">Chargement du fond de carte…</div>
+        <!-- SVG injecté ici -->
+        <div class="map-layers" id="map-layers" role="group" aria-label="Couches de la carte">
+          <label class="layer-chip chip-quake"><input type="checkbox" data-layer="quakes" checked><span>Séismes</span></label>
+          <label class="layer-chip chip-event"><input type="checkbox" data-layer="eonet" checked><span>Catastrophes</span></label>
+          <label class="layer-chip chip-night"><input type="checkbox" data-layer="night" checked><span>Jour / Nuit</span></label>
+          <label class="layer-chip chip-iss"><input type="checkbox" data-layer="iss" checked><span>ISS</span></label>
+        </div>
+        <div class="map-tooltip" id="map-tooltip" hidden></div>
+        <div class="map-hint">Molette : zoom · Glisser : déplacer · Clic pays : fiche détaillée</div>
+      </div>
+    </section>
+
+    <!-- SÉISMES -->
+    <section class="panel p-quakes" id="panel-quakes">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Sismicité <span class="count-badge" id="quake-count"></span></h2>
+        <div class="panel-tools">
+          <select id="quake-min" class="mini-select" title="Magnitude minimale" aria-label="Magnitude minimale">
+            <option value="2.5">M ≥ 2,5</option>
+            <option value="4" selected>M ≥ 4,0</option>
+            <option value="5">M ≥ 5,0</option>
+          </select>
+          <span class="updated" id="quakes-updated"></span>
+        </div>
+      </header>
+      <div class="panel-body list" id="quakes-list"><div class="placeholder">Interrogation du réseau sismique USGS…</div></div>
+    </section>
+
+    <!-- CATASTROPHES -->
+    <section class="panel p-disasters" id="panel-disasters">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Événements naturels <span class="count-badge" id="eonet-count"></span></h2>
+        <div class="panel-tools"><span class="updated" id="eonet-updated"></span></div>
+      </header>
+      <div class="panel-body list" id="eonet-list"><div class="placeholder">Chargement des données NASA EONET…</div></div>
+    </section>
+
+    <!-- ACTUALITÉS -->
+    <section class="panel p-news" id="panel-news">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Flux mondial</h2>
+        <div class="panel-tools"><span class="updated" id="news-updated"></span></div>
+      </header>
+      <nav class="news-tabs" id="news-tabs" role="tablist" aria-label="Catégories d'actualités"></nav>
+      <div class="panel-body list news-list" id="news-list"><div class="placeholder">Synchronisation avec le flux GDELT…</div></div>
+    </section>
+
+    <!-- MARCHÉS -->
+    <section class="panel p-markets" id="panel-markets">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Marchés</h2>
+        <div class="panel-tools"><span class="updated" id="markets-updated"></span></div>
+      </header>
+      <div class="panel-body">
+        <div class="fng-row" id="fng-row" title="Indice « Peur & Avidité » du marché crypto (alternative.me)">
+          <span class="fng-title">Peur &amp; Avidité</span>
+          <div class="fng-bar"><div class="fng-fill" id="fng-fill"></div><div class="fng-cursor" id="fng-cursor"></div></div>
+          <span class="fng-value" id="fng-value">—</span>
+        </div>
+        <table class="crypto-table" aria-label="Cours des cryptomonnaies">
+          <thead><tr><th>Actif</th><th>Cours</th><th>24 h</th><th class="th-spark">Tendance</th></tr></thead>
+          <tbody id="crypto-body"><tr><td colspan="4" class="placeholder">Connexion au flux Binance…</td></tr></tbody>
+        </table>
+        <h3 class="sub-head">Devises — base EUR <span class="src-note">(BCE)</span></h3>
+        <div class="fx-grid" id="fx-grid"><div class="placeholder">Chargement des taux de change…</div></div>
+      </div>
+    </section>
+
+    <!-- MÉTÉO -->
+    <section class="panel p-weather" id="panel-weather">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Météo mondiale</h2>
+        <div class="panel-tools"><span class="updated" id="weather-updated"></span></div>
+      </header>
+      <div class="panel-body">
+        <div class="weather-grid" id="weather-grid"><div class="placeholder">Relevés Open-Meteo en cours…</div></div>
+      </div>
+    </section>
+
+    <!-- TECH -->
+    <section class="panel p-tech" id="panel-tech">
+      <header class="panel-head">
+        <h2><span class="live-dot" aria-hidden="true"></span>Radar technologique <span class="src-note">(Hacker News, source anglophone)</span></h2>
+        <div class="panel-tools"><span class="updated" id="tech-updated"></span></div>
+      </header>
+      <div class="panel-body list" id="tech-list"><div class="placeholder">Lecture du flux Hacker News…</div></div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════ HORLOGES MONDIALES ═══════════ -->
+  <div class="clocks-strip" id="clocks-strip" aria-label="Horloges mondiales"></div>
+
+  <!-- ═══════════ PIED DE PAGE ═══════════ -->
+  <footer class="footer">
+    <p><strong>ORBIS</strong> agrège exclusivement des données publiques : USGS (sismicité) · NASA EONET (événements naturels) · GDELT (presse mondiale) · Binance (crypto) · Frankfurter / BCE (devises) · Open-Meteo (météo) · Hacker News (tech) · Where the ISS at (station spatiale).</p>
+    <p class="footer-note">Le « pouls planétaire » est un indicateur synthétique expérimental, sans valeur prédictive. Projet inspiré de l'application open-source World Monitor. Aucune donnée personnelle n'est collectée : vos préférences restent dans votre navigateur.</p>
+  </footer>
+
+  <!-- ═══════════ FICHE PAYS (VOLET) ═══════════ -->
+  <aside class="country-drawer" id="country-drawer" aria-hidden="true" role="dialog" aria-label="Fiche pays">
+    <div class="drawer-inner" id="drawer-inner"></div>
+  </aside>
+  <div class="drawer-veil" id="drawer-veil" hidden></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
