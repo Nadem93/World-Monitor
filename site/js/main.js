@@ -15,6 +15,7 @@ import { initFr } from './fr.js';
 import {
   loadGlobalBarometer, loadMarketCaps, loadTopMovers,
   initCoinDrawer, initConverter,
+  loadTrending, loadSectors, loadMacro, loadFxChart,
 } from './finance.js';
 
 const $ = (id) => document.getElementById(id);
@@ -170,12 +171,17 @@ async function init() {
   initCoinDrawer();
   initConverter();
   const finTabs = $('fin-tabs');
+  const finLoaded = {};
   finTabs.addEventListener('click', (e) => {
     const btn = e.target.closest('.fin-tab');
     if (!btn) return;
     finTabs.querySelectorAll('.fin-tab').forEach(b => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.fin-pane').forEach(p => { p.hidden = p.dataset.pane !== btn.dataset.tab; });
-    if (btn.dataset.tab === 'movers') loadTopMovers();
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.fin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+    // Chargements à la demande (une fois par onglet, puis rafraîchis en arrière-plan)
+    if (tab === 'movers') { loadTopMovers(); if (!finLoaded.movers) { loadSectors(); finLoaded.movers = 1; } }
+    if (tab === 'devises' && !finLoaded.devises) { loadFxChart(); finLoaded.devises = 1; }
+    if (tab === 'macro' && !finLoaded.macro) { loadMacro(); finLoaded.macro = 1; }
   });
 
   // Bouton tout actualiser
@@ -204,6 +210,7 @@ async function init() {
   // Capitalisations d'abord, puis tableau crypto (pour la colonne Cap.)
   loadMarketCaps().then(() => loadMarkets(state).then(renderPulse));
   loadGlobalBarometer();
+  loadTrending();
   loadFx(state).then(() => loadMarkets(state));
   loadFng(state).then(renderPulse);
   loadWeather();
@@ -219,6 +226,7 @@ async function init() {
   setInterval(() => loadMarkets(state).then(renderPulse), REFRESH.ticker);
   setInterval(() => loadGlobalBarometer(), 300_000);
   setInterval(() => loadMarketCaps(), 300_000);
+  setInterval(() => loadTrending(), 600_000);
   setInterval(() => loadFx(state), REFRESH.fx);
   setInterval(() => loadFng(state).then(renderPulse), 3_600_000);
   setInterval(() => loadWeather(), REFRESH.weather);

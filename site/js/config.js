@@ -22,6 +22,7 @@ export const API = {
   coingecko: 'https://api.coingecko.com/api/v3',
   fx:      'https://api.frankfurter.dev/v1/latest',
   fxBase:  'https://api.frankfurter.dev/v1',
+  treasury: 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od',
   fng:     'https://api.alternative.me/fng/?limit=1',
   meteo:   'https://api.open-meteo.com/v1/forecast',
   hnTop:   'https://hacker-news.firebaseio.com/v0/topstories.json',

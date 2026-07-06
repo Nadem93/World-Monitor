@@ -152,6 +152,7 @@
         <button class="fin-tab active" data-tab="cryptos" role="tab">Cryptos</button>
         <button class="fin-tab" data-tab="movers" role="tab">Palmarès</button>
         <button class="fin-tab" data-tab="devises" role="tab">Devises</button>
+        <button class="fin-tab" data-tab="macro" role="tab">Macro</button>
       </nav>
 
       <div class="panel-body fin-body">
@@ -162,6 +163,7 @@
             <div class="fng-bar"><div class="fng-fill" id="fng-fill"></div><div class="fng-cursor" id="fng-cursor"></div></div>
             <span class="fng-value" id="fng-value">—</span>
           </div>
+          <div class="trending-strip" id="trending-strip" title="Cryptos les plus recherchées (CoinGecko)"></div>
           <table class="crypto-table" aria-label="Cours des cryptomonnaies">
             <thead><tr><th>Actif</th><th>Cours</th><th>24 h</th><th class="th-cap">Cap.</th><th class="th-spark">Tendance</th></tr></thead>
             <tbody id="crypto-body"><tr><td colspan="5" class="placeholder">Connexion au flux Binance…</td></tr></tbody>
@@ -172,6 +174,8 @@
         <!-- Onglet Palmarès -->
         <div class="fin-pane" data-pane="movers" hidden>
           <div class="movers" id="movers-body"><div class="placeholder">Analyse des variations Binance…</div></div>
+          <h3 class="sub-head">Secteurs crypto — variation 24 h <span class="src-note">(CoinGecko)</span></h3>
+          <div class="sectors" id="sectors-body"><div class="placeholder">Chargement des secteurs…</div></div>
         </div>
 
         <!-- Onglet Devises -->
@@ -185,8 +189,24 @@
             </div>
             <div class="cv-result" id="cv-result">—</div>
           </div>
+          <h3 class="sub-head">EUR / USD — 30 jours <span class="src-note">(BCE)</span></h3>
+          <div class="fx-chart-cap" id="fx-chart-cap"></div>
+          <div class="fx-chart" id="fx-chart"><div class="placeholder">Chargement de l'historique…</div></div>
           <h3 class="sub-head">Taux de référence — base EUR <span class="src-note">(BCE)</span></h3>
           <div class="fx-grid" id="fx-grid"><div class="placeholder">Chargement des taux de change…</div></div>
+        </div>
+
+        <!-- Onglet Macro -->
+        <div class="fin-pane" data-pane="macro" hidden>
+          <div class="macro-debt-block">
+            <span class="macro-k">Dette publique des États-Unis</span>
+            <span class="macro-debt" id="macro-debt">—</span>
+            <span class="macro-debt-date" id="macro-debt-date"></span>
+            <span class="macro-chg" id="macro-debt-chg"></span>
+          </div>
+          <h3 class="sub-head">Taux d'intérêt du Trésor américain <span class="src-note" id="macro-rates-date">(FiscalData)</span></h3>
+          <div class="macro-rates" id="macro-rates"><div class="placeholder">Chargement des taux…</div></div>
+          <p class="fin-hint">Source : département du Trésor américain (données publiques officielles).</p>
         </div>
       </div>
     </section>

@@ -298,3 +298,164 @@ function convert() {
   out.innerHTML = `<span class="cv-big">${result.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}</span> ${to}
     <span class="cv-rate">1 ${from} = ${(rt / rf).toLocaleString('fr-FR', { maximumFractionDigits: 4 })} ${to}</span>`;
 }
+
+// ═══════════════ Cryptos tendance (CoinGecko /search/trending) ═══════════════
+
+export async function loadTrending() {
+  const box = $('trending-strip');
+  if (!box) return;
+  try {
+    const { data } = await getCached('cg-trending', `${API.coingecko}/search/trending`, 600_000);
+    const coins = (data.coins || []).slice(0, 7);
+    if (!coins.length) { box.innerHTML = ''; return; }
+    box.innerHTML = '<span class="trend-label">🔥 Tendance</span>' + coins.map(c => {
+      const it = c.item;
+      const chg = it.data?.price_change_percentage_24h?.usd;
+      const cl = chg == null ? '' : chg >= 0 ? 'up' : 'down';
+      const sign = chg == null ? '' : `${chg >= 0 ? '+' : ''}${chg.toFixed(1)} %`;
+      return `<span class="trend-item"><b>${escapeHtml(it.symbol)}</b> <span class="chg ${cl}">${sign}</span></span>`;
+    }).join('');
+  } catch { box.innerHTML = ''; }
+}
+
+// ═══════════════ Secteurs crypto (CoinGecko /coins/categories) ═══════════════
+
+export async function loadSectors() {
+  const box = $('sectors-body');
+  if (!box) return;
+  try {
+    const { data } = await getCached('cg-categories', `${API.coingecko}/coins/categories`, 900_000);
+    const valid = data.filter(c => c.market_cap_change_24h != null && c.market_cap > 5e7);
+    const top = [...valid].sort((a, b) => b.market_cap_change_24h - a.market_cap_change_24h).slice(0, 5);
+    const bottom = [...valid].sort((a, b) => a.market_cap_change_24h - b.market_cap_change_24h).slice(0, 5);
+    const row = (c) => `<div class="sector-row">
+      <span class="sector-name">${escapeHtml(c.name)}</span>
+      <span class="sector-cap">${fmtCompact(c.market_cap)} $</span>
+      <span class="chg ${c.market_cap_change_24h >= 0 ? 'up' : 'down'}">${pct(c.market_cap_change_24h)}</span>
+    </div>`;
+    box.innerHTML = `
+      <div class="sectors-col"><div class="movers-head up">▲ Secteurs en hausse</div>${top.map(row).join('')}</div>
+      <div class="sectors-col"><div class="movers-head down">▼ Secteurs en baisse</div>${bottom.map(row).join('')}</div>`;
+  } catch {
+    box.innerHTML = '<div class="placeholder err">Secteurs indisponibles.</div>';
+  }
+}
+
+// ═══════════════ Macro : dette publique US + taux Treasury ═══════════════
+
+export async function loadMacro() {
+  loadUsDebt();
+  loadTreasuryRates();
+}
+
+async function loadUsDebt() {
+  const el = $('macro-debt');
+  if (!el) return;
+  try {
+    const url = `${API.treasury}/debt_to_penny?sort=-record_date&page%5Bsize%5D=400`;
+    const { data } = await getCached('us-debt', url, 21_600_000);
+    const rows = data.data || [];
+    if (!rows.length) throw new Error('vide');
+    const latest = rows[0];
+    const total = +latest.tot_pub_debt_out_amt;
+    el.textContent = fmtCompact(total) + ' $';
+    $('macro-debt-date').textContent = 'au ' + new Date(latest.record_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+    // Variation sur ~1 an (première ligne de l'an précédent trouvée)
+    const yearAgo = rows.find(r => {
+      const d = new Date(r.record_date);
+      return (Date.now() - d) > 350 * 86400_000;
+    });
+    if (yearAgo) {
+      const diff = total - +yearAgo.tot_pub_debt_out_amt;
+      const chgEl = $('macro-debt-chg');
+      chgEl.textContent = `${diff >= 0 ? '+' : ''}${fmtCompact(diff)} $ sur ~1 an`;
+      chgEl.className = 'macro-chg ' + (diff >= 0 ? 'down' : 'up'); // hausse de dette = rouge
+    }
+  } catch {
+    el.textContent = 'indisponible';
+  }
+}
+
+const RATE_FR = {
+  'Treasury Bills': 'Bons du Trésor (< 1 an)',
+  'Treasury Notes': 'Obligations (2-10 ans)',
+  'Treasury Bonds': 'Obligations longues (20-30 ans)',
+  'Treasury Inflation-Protected Securities (TIPS)': 'Titres indexés inflation (TIPS)',
+  'Total Marketable': 'Ensemble négociable',
+};
+
+async function loadTreasuryRates() {
+  const box = $('macro-rates');
+  if (!box) return;
+  try {
+    const url = `${API.treasury}/avg_interest_rates?sort=-record_date&page%5Bsize%5D=30`;
+    const { data } = await getCached('us-rates', url, 21_600_000);
+    const rows = data.data || [];
+    const latest = rows[0]?.record_date;
+    const wanted = Object.keys(RATE_FR);
+    const seen = new Set();
+    const items = [];
+    for (const r of rows) {
+      if (r.record_date !== latest) continue;
+      if (wanted.includes(r.security_desc) && !seen.has(r.security_desc) && r.avg_interest_rate_amt !== 'null') {
+        seen.add(r.security_desc);
+        items.push([RATE_FR[r.security_desc], +r.avg_interest_rate_amt]);
+      }
+    }
+    // Ordre logique
+    items.sort((a, b) => wanted.findIndex(w => RATE_FR[w] === a[0]) - wanted.findIndex(w => RATE_FR[w] === b[0]));
+    box.innerHTML = items.map(([k, v]) => `
+      <div class="rate-row">
+        <span class="rate-name">${escapeHtml(k)}</span>
+        <span class="rate-val">${v.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} %</span>
+      </div>`).join('');
+    if (latest) $('macro-rates-date').textContent = 'taux moyens · ' + new Date(latest).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  } catch {
+    box.innerHTML = '<div class="placeholder err">Taux indisponibles.</div>';
+  }
+}
+
+// ═══════════════ Graphique historique EUR/USD (Frankfurter series) ═══════════════
+
+export async function loadFxChart() {
+  const box = $('fx-chart');
+  if (!box) return;
+  try {
+    // 30 derniers jours ; dates calculées côté client sans Date.now interdit ? on utilise new Date via API interne
+    const end = new Date();
+    const start = new Date(end.getTime() - 32 * 86400_000);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const url = `${API.fxBase}/${iso(start)}..${iso(end)}?base=EUR&symbols=USD`;
+    const { data } = await getCached('fx-series', url, 43_200_000);
+    const rates = data.rates || {};
+    const pts = Object.keys(rates).sort().map(d => ({ t: Date.parse(d), c: rates[d].USD }));
+    if (pts.length < 2) throw new Error('série vide');
+    box.innerHTML = fxAreaChart(pts);
+    const last = pts[pts.length - 1].c, first = pts[0].c;
+    const chg = (last - first) / first * 100;
+    $('fx-chart-cap').innerHTML = `EUR / USD · <b>${last.toLocaleString('fr-FR', { maximumFractionDigits: 4 })}</b>
+      <span class="chg ${chg >= 0 ? 'up' : 'down'}">${pct(chg)} / 30 j</span>`;
+  } catch {
+    box.innerHTML = '<div class="placeholder err">Graphique de change indisponible.</div>';
+  }
+}
+
+function fxAreaChart(pts) {
+  const W = 360, H = 120, padL = 4, padR = 4, padT = 8, padB = 16;
+  const vals = pts.map(p => p.c);
+  const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
+  const x = (i) => padL + i * (W - padL - padR) / (pts.length - 1);
+  const y = (v) => padT + (1 - (v - min) / span) * (H - padT - padB);
+  const dir = vals[vals.length - 1] >= vals[0] ? 'up' : 'down';
+  const line = pts.map((p, i) => `${x(i).toFixed(1)},${y(p.c).toFixed(1)}`).join(' ');
+  const area = `${padL},${(H - padB).toFixed(1)} ${line} ${(W - padR).toFixed(1)},${(H - padB).toFixed(1)}`;
+  const df = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short' });
+  const ticks = [0, pts.length - 1].map(i =>
+    `<text x="${x(i).toFixed(0)}" y="${H - 4}" class="cc-axis" text-anchor="${i === 0 ? 'start' : 'end'}">${df.format(pts[i].t)}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="cc-svg" preserveAspectRatio="none" aria-label="Historique EUR/USD">
+    <polygon class="cc-area ${dir}" points="${area}"/>
+    <polyline class="cc-line ${dir}" points="${line}"/>
+    <text x="${W - padR}" y="11" class="cc-price" text-anchor="end">${max.toFixed(4)}</text>
+    <text x="${W - padR}" y="${H - padB}" class="cc-price" text-anchor="end">${min.toFixed(4)}</text>
+    ${ticks}</svg>`;
+}
