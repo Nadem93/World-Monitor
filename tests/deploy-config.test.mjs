@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,7 +16,7 @@ const middlewareSource = readFileSync(resolve(__dirname, '../middleware.ts'), 'u
 const dockerfileSource = readFileSync(resolve(__dirname, '../Dockerfile'), 'utf-8');
 const dockerNginxSource = readFileSync(resolve(__dirname, '../docker/nginx.conf'), 'utf-8');
 const frontendDockerfileSource = readFileSync(resolve(__dirname, '../docker/Dockerfile'), 'utf-8');
-const SPA_HTML_CACHE_SOURCE = '/((?!api|mcp|oauth|assets|blog|docs|embed|embed\\.html|favico|map-styles|data|textures|pro|sw\\.js|workbox-[a-f0-9]+\\.js|manifest\\.webmanifest|offline\\.html|robots\\.txt|sitemap\\.xml|llms\\.txt|llms-full\\.txt|openapi\\.yaml|openapi\\.json|auth\\.md|\\.well-known|wm-widget-sandbox\\.html|mcp-grant\\.html|mcp-grant).*)';
+const SPA_HTML_CACHE_SOURCE = '/((?!api|mcp|a2a|ask|oauth|assets|blog|docs|embed|embed\\.html|favico|map-styles|data|textures|pro|sw\\.js|workbox-[a-f0-9]+\\.js|manifest\\.webmanifest|offline\\.html|robots\\.txt|sitemap\\.xml|llms\\.txt|llms-full\\.txt|openapi\\.yaml|openapi\\.json|auth\\.md|pricing\\.md|support\\.md|\\.well-known|wm-widget-sandbox\\.html|mcp-grant\\.html|mcp-grant).*)';
 const GLOBAL_SECURITY_HEADER_SOURCE = '/((?!docs|embed|embed\\.html).*)';
 const APP_ROOT_HOST_PATTERN = '^(?:(?:www|tech|finance|commodity|happy|energy)\\.)?worldmonitor\\.app$';
 const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
@@ -168,6 +168,11 @@ describe('deploy/cache configuration guardrails', () => {
     assertGlobIgnore('pro/**');
     assertGlobIgnore('favico/**');
     assertGlobIgnore('textures/**');
+    // #4891: blog OG covers exist only in prod builds (blog generated at
+    // deploy), so a local dist/sw.js never exposes the regression — guard the
+    // config directly. Without this ignore, every first dashboard visit
+    // precached ~40 blog PNGs (~700KB) through the service worker.
+    assertGlobIgnore('blog/**');
   });
 
   it('keeps the lazy Clerk SDK out of the PWA precache', () => {
@@ -218,7 +223,13 @@ const DASHBOARD_HTML_DESTINATION = '/dashboard.html';
 // rewrite. /welcome and /index.html redirect to root so crawlers and humans do
 // not see duplicate landing URLs.
 describe('welcome landing page routing', () => {
-  const getRootRewrite = () => vercelConfig.rewrites.find((r) => r.source === '/');
+  // A `/` rewrite gated on a query condition (e.g. /?mode=agent →
+  // /agent-view.json) never matches a plain navigation, so the app-root
+  // welcome rewrite is the first `/` rule WITHOUT a query condition.
+  const getRootRewrite = () =>
+    vercelConfig.rewrites.find(
+      (r) => r.source === '/' && !(r.has ?? []).some((condition) => condition.type === 'query')
+    );
   const getSpaCatchAllRewrite = () => vercelConfig.rewrites.find((r) =>
     r.destination === DASHBOARD_HTML_DESTINATION && r.source.startsWith('/((?!')
   );
@@ -231,12 +242,35 @@ describe('welcome landing page routing', () => {
   };
 
   it('declares / as the app-root welcome rewrite after moving dashboard HTML off root index', () => {
-    const rewrite = vercelConfig.rewrites.find((r) => r.source === '/');
+    const rewrite = getRootRewrite();
     assert.ok(rewrite, 'expected a rewrite for /');
     assert.equal(rewrite.destination, '/pro/welcome.html');
     assert.deepEqual(rewrite.has, [
       { type: 'host', value: APP_ROOT_HOST_PATTERN },
     ]);
+  });
+
+  // #4825: public/index.md became Vercel's DIRECTORY INDEX for `/` — filesystem
+  // resolution beats the `/` → /pro/welcome.html rewrite, so the apex homepage
+  // served raw text/markdown to browsers. No `index.*` file may exist in public/;
+  // the markdown homepage twin lives at public/home.md and keeps its scored URL
+  // through the /index.md rewrite below.
+  it('keeps public/ free of index.* files so filesystem resolution cannot hijack the / rewrite', () => {
+    const publicDir = resolve(__dirname, '../public');
+    const offenders = readdirSync(publicDir).filter((f) => /^index\./i.test(f));
+    assert.deepEqual(offenders, [], `public/${offenders[0] ?? ''} would shadow the / welcome rewrite as a directory index`);
+  });
+
+  it('serves the markdown homepage twin at /index.md via rewrite to the non-index home.md', () => {
+    assert.ok(existsSync(resolve(__dirname, '../public/home.md')), 'expected public/home.md (markdown homepage twin)');
+    const rewrite = vercelConfig.rewrites.find((r) => r.source === '/index.md');
+    assert.ok(rewrite, 'expected a rewrite for /index.md');
+    assert.equal(rewrite.destination, '/home.md');
+    const catchAll = getSpaCatchAllRewrite();
+    assert.ok(
+      vercelConfig.rewrites.indexOf(rewrite) < vercelConfig.rewrites.indexOf(catchAll),
+      '/index.md rewrite must precede the SPA catch-all'
+    );
   });
 
   it('routes app roots to welcome and leaves non-app roots on the dashboard catch-all', () => {
@@ -499,7 +533,7 @@ describe('docker runtime dependency guardrails', () => {
   const runtimeLock = JSON.parse(readFileSync(resolve(__dirname, '../docker/runtime-package-lock.json'), 'utf-8'));
 
   it('installs runtime node_modules from a minimal dependency stage', () => {
-    assert.match(dockerfileSource, /^FROM\s+node:22-alpine@sha256:[a-f0-9]{64}\s+AS\s+runtime-deps$/m);
+    assert.match(dockerfileSource, /^FROM\s+node:\d+-alpine@sha256:[a-f0-9]{64}\s+AS\s+runtime-deps$/m);
     assert.match(dockerfileSource, /npm ci --omit=dev --omit=optional --ignore-scripts/);
     assert.match(dockerfileSource, /COPY --from=runtime-deps \/app\/node_modules \.\/node_modules/);
     assert.doesNotMatch(dockerfileSource, /npm prune --omit=dev/);
@@ -1136,16 +1170,64 @@ describe('agent readiness: api-catalog + openapi build', () => {
     assert.ok(apiEntry, 'linkset must contain a context object anchored at https://api.worldmonitor.app/');
   });
 
-  it('status href points at /api/health (SPA lives at /health — would 200 HTML and look healthy)', () => {
+  it('status href points at the KEYLESS compact form of /api/health', () => {
+    // Two drift classes guarded here:
+    //   (1) the SPA lives at /health — a bare-host href would 200 HTML and
+    //       look healthy;
+    //   (2) #4715 gated detailed /api/health behind an operator key, so the
+    //       bare endpoint 401s keyless callers. An advertised status URL must
+    //       return 2xx WITHOUT credentials — that is ?compact=1 (#4856; an
+    //       agent-journey run read the stale bare-URL advertisement, got 401,
+    //       and flagged the whole status surface as broken).
     const statusHref = apiEntry.status[0].href;
     assert.ok(
       statusHref.startsWith('https://api.worldmonitor.app'),
       `status href must be on api.worldmonitor.app, got: ${statusHref}`
     );
-    assert.ok(
-      statusHref.endsWith('/api/health'),
-      `status href must end with /api/health (real JSON endpoint), got: ${statusHref}`
+    assert.equal(
+      statusHref,
+      'https://api.worldmonitor.app/api/health?compact=1',
+      'status href must be the keyless compact health form'
     );
+  });
+
+  it('every vercel.json Link rel="status" advertisement uses the keyless compact form', () => {
+    // Same #4715→#4856 drift class as above, for the Link-header copies: an
+    // auth-gating change on /api/health must not silently strand the
+    // machine-readable status advertisements on a URL that 401s keyless.
+    const vercelRaw = readFileSync(resolve(__dirname, '../vercel.json'), 'utf-8');
+    const statusLinks = vercelRaw.match(/<[^>]*>;\s*rel=\\"status\\"/g) ?? [];
+    assert.ok(statusLinks.length > 0, 'expected at least one Link rel="status" advertisement in vercel.json');
+    for (const link of statusLinks) {
+      assert.ok(
+        link.startsWith('</api/health?compact=1>'),
+        `Link rel="status" must point at /api/health?compact=1 (keyless), got: ${link}`
+      );
+    }
+  });
+
+  it('service-meta advertises the machine-readable pricing + support surfaces', () => {
+    // Pricing/support were previously discoverable ONLY via llms.txt; agents
+    // entering through the Link-header → api-catalog chain never saw them and
+    // fell back to slug-guessing (#4854, #4857). RFC 9727 allows arbitrary
+    // link relations on a context object; service-meta is the metadata slot.
+    const meta = apiEntry['service-meta'];
+    assert.ok(Array.isArray(meta) && meta.length > 0, 'api context must carry service-meta entries');
+    const hrefs = meta.map((entry) => entry.href);
+    assert.ok(hrefs.includes('https://worldmonitor.app/pricing.md'), 'service-meta must advertise pricing.md');
+    assert.ok(
+      hrefs.includes('https://www.worldmonitor.app/api/product-catalog'),
+      'service-meta must advertise the live product-catalog JSON endpoint'
+    );
+    assert.ok(hrefs.includes('https://worldmonitor.app/support.md'), 'service-meta must advertise support.md');
+    // The Commerce spec lives outside the root openapi bundle (size budget,
+    // #4853) — without this link no advertised descriptor reaches it
+    // (post-#4867 review finding); Mintlify serves the raw YAML at this URL.
+    const commerceSpec = meta.find(
+      (entry) => entry.href === 'https://www.worldmonitor.app/docs/openapi/CommerceService.openapi.yaml'
+    );
+    assert.ok(commerceSpec, 'service-meta must link the Commerce OpenAPI spec');
+    assert.equal(commerceSpec.type, 'application/vnd.oai.openapi');
   });
 
   it('service-desc points at /openapi.yaml with the OpenAPI media type', () => {
@@ -1522,6 +1604,28 @@ describe('agent readiness: auth.md walkthrough', () => {
     assert.ok(catchAll.source.includes('|auth\\.md|'), 'SPA catch-all rewrite must exclude /auth.md');
     assert.ok(SPA_HTML_CACHE_SOURCE.includes('|auth\\.md|'), 'HTML cache catch-all must exclude /auth.md');
   });
+
+  // pricing.md and support.md are advertised in api-catalog service-meta and
+  // llms.txt (#4854/#4857), so they get the same three-way pinning as auth.md:
+  // explicit markdown Content-Type + CORS, catch-all exclusion (deleting or
+  // renaming the static file must 404, not silently serve the dashboard HTML
+  // misleading-200 the journey runs flagged), and this guard.
+  for (const mdPath of ['/pricing.md', '/support.md']) {
+    it(`serves ${mdPath} as markdown and keeps it off the SPA catch-all`, () => {
+      assert.equal(getHeaderValueForSource(mdPath, 'Content-Type'), 'text/markdown; charset=utf-8');
+      assert.equal(getHeaderValueForSource(mdPath, 'Access-Control-Allow-Origin'), '*');
+      const catchAll = vercelConfig.rewrites.find((r) =>
+        r.destination === DASHBOARD_HTML_DESTINATION && r.source.startsWith('/((?!')
+      );
+      const frag = `|${mdPath.slice(1).replace('.', '\\.')}|`;
+      assert.ok(catchAll.source.includes(frag), `SPA catch-all rewrite must exclude ${mdPath}`);
+      assert.ok(SPA_HTML_CACHE_SOURCE.includes(frag), `HTML cache catch-all must exclude ${mdPath}`);
+      assert.ok(
+        existsSync(resolve(__dirname, `../public${mdPath}`)),
+        `public${mdPath} must exist — it is advertised in api-catalog service-meta and llms.txt`
+      );
+    });
+  }
 });
 
 // PR history: #3204 / #3206 forced the resvg linux-x64-gnu native
@@ -1633,5 +1737,172 @@ describe('agent readiness: homepage Link headers', () => {
     const dashboard = vercel.headers.find((h) => h.source === '/dashboard').headers.find((h) => h.key === 'Link');
     const dashboardHtml = vercel.headers.find((h) => h.source === '/dashboard.html').headers.find((h) => h.key === 'Link');
     assert.strictEqual(dashboard.value, dashboardHtml.value);
+  });
+});
+
+// Content-Signal (contentsignals.org draft RFC) is declared in TWO places:
+// the robots.txt group directive (what agent-readiness scanners read) and the
+// origin-wide HTTP response header in vercel.json. The two values must never
+// drift apart, and the robots.txt line must live inside the `User-agent: *`
+// group (a blank line would end the group and orphan the directive).
+// Lighthouse's robots.txt validator safelists `content-signal`, so the
+// directive no longer costs SEO points (#4471 history).
+describe('agent readiness: Content-Signal declarations', () => {
+  const robotsSource = readFileSync(resolve(__dirname, '../public/robots.txt'), 'utf-8');
+
+  const headerValue = () => {
+    for (const block of vercelConfig.headers ?? []) {
+      const hit = (block.headers ?? []).find((h) => h.key === 'Content-Signal');
+      if (hit) return hit.value;
+    }
+    return null;
+  };
+
+  it('vercel.json serves an origin-wide Content-Signal header', () => {
+    const value = headerValue();
+    assert.ok(value, 'vercel.json must carry a Content-Signal response header');
+    assert.match(value, /ai-train=(yes|no)/);
+    assert.match(value, /search=(yes|no)/);
+    assert.match(value, /ai-input=(yes|no)/);
+  });
+
+  it('robots.txt declares the same Content-Signal inside the User-agent group', () => {
+    const lines = robotsSource.split('\n');
+    const uaIndex = lines.findIndex((l) => l.trim().toLowerCase() === 'user-agent: *');
+    assert.ok(uaIndex !== -1, 'robots.txt must have a `User-agent: *` group');
+    const signalIndex = lines.findIndex((l) => l.startsWith('Content-Signal:'));
+    assert.ok(signalIndex > uaIndex, 'Content-Signal directive must appear after `User-agent: *`');
+    for (let i = uaIndex + 1; i < signalIndex; i++) {
+      assert.notStrictEqual(
+        lines[i].trim(),
+        '',
+        'Content-Signal must not be separated from its User-agent group by a blank line'
+      );
+    }
+    const robotsValue = lines[signalIndex].slice('Content-Signal:'.length).trim();
+    assert.strictEqual(
+      robotsValue,
+      headerValue(),
+      'robots.txt Content-Signal must match the vercel.json header value'
+    );
+  });
+});
+
+describe('vercel deployment excludes api test files', () => {
+  // Vercel deploys every non-underscore file under api/ as a live serverless
+  // function. A deployed *.test.mjs is a public endpoint that executes its
+  // whole node:test suite (with production env + Sentry) on every request —
+  // WORLDMONITOR-VD flooded Sentry with "Upstash Redis is not configured"
+  // because wm-session.test.mjs deletes the Upstash env vars to exercise the
+  // fail-closed path, and something polls /api/wm-session.test every ~2 min.
+  const vercelignore = readFileSync(resolve(__dirname, '../.vercelignore'), 'utf-8');
+  const ignoreRules = vercelignore
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+  const collectApiTestFiles = (dir) => {
+    const found = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) found.push(...collectApiTestFiles(full));
+      else if (/\.test\.[cm]?[jt]sx?$/.test(entry.name)) found.push(full);
+    }
+    return found;
+  };
+  const apiTestFiles = collectApiTestFiles(resolve(__dirname, '../api'));
+
+  it('.vercelignore excludes api/**/*.test.mjs', () => {
+    assert.ok(
+      ignoreRules.includes('api/**/*.test.mjs'),
+      '.vercelignore must contain "api/**/*.test.mjs" — without it every api test file deploys as a live production function'
+    );
+  });
+
+  it('every api test file uses the .test.mjs extension the ignore rule covers', () => {
+    assert.ok(apiTestFiles.length > 0, 'expected api test files to exist (walker broke?)');
+    for (const file of apiTestFiles) {
+      assert.match(
+        file,
+        /\.test\.mjs$/,
+        `${file}: api test files must end in .test.mjs so the .vercelignore rule excludes them from deployment — extend both if introducing a new extension`
+      );
+    }
+  });
+});
+
+// Registry branding + ARD catalog (ora.ai Discovery checks). The MCP
+// server-card must carry the full branding trio (name, icon, description —
+// `registry-branding`), and /.well-known/ai-catalog.json publishes the ARD
+// manifest (`ard-catalog` bonus): host identity plus domain-anchored
+// urn:air: entries, each with a media type, URL, and trust manifest —
+// mirroring ora's own /api/ard/catalog dialect, which is what their parser
+// reads.
+describe('agent readiness: registry branding + ARD catalog', () => {
+  const serverCard = JSON.parse(
+    readFileSync(resolve(__dirname, '../public/.well-known/mcp/server-card.json'), 'utf-8')
+  );
+  const aiCatalog = JSON.parse(
+    readFileSync(resolve(__dirname, '../public/.well-known/ai-catalog.json'), 'utf-8')
+  );
+
+  it('server-card carries the full branding trio and the icon asset exists', () => {
+    assert.ok(serverCard.name, 'server-card must have a name');
+    assert.ok(serverCard.description, 'server-card must have a description');
+    assert.match(
+      serverCard.icon ?? '',
+      /^https:\/\/(www\.)?worldmonitor\.app\//,
+      'server-card icon must be an absolute worldmonitor.app URL'
+    );
+    const iconPath = new URL(serverCard.icon).pathname;
+    assert.ok(
+      existsSync(resolve(__dirname, `../public${iconPath}`)),
+      `server-card icon must point at a real public asset (public${iconPath})`
+    );
+  });
+
+  it('ai-catalog.json declares the World Monitor host identity', () => {
+    assert.strictEqual(aiCatalog.specVersion, '1.0');
+    assert.strictEqual(aiCatalog.host?.displayName, 'World Monitor');
+    assert.strictEqual(aiCatalog.host?.identifier, 'did:web:worldmonitor.app');
+    assert.ok(Array.isArray(aiCatalog.entries) && aiCatalog.entries.length >= 2);
+  });
+
+  it('every ai-catalog entry is domain-anchored and complete', () => {
+    for (const entry of aiCatalog.entries) {
+      const label = `ai-catalog entry ${entry.identifier}`;
+      assert.match(
+        entry.identifier ?? '',
+        /^urn:air:worldmonitor\.app:[a-z-]+:[a-z0-9-]+$/,
+        `${label} must be a domain-anchored urn:air URN`
+      );
+      assert.ok(entry.displayName, `${label} needs a displayName`);
+      assert.ok(entry.type, `${label} needs a media type`);
+      assert.ok(entry.description, `${label} needs a description`);
+      assert.match(
+        entry.url ?? '',
+        /^https:\/\/(www\.)?worldmonitor\.app\//,
+        `${label} URL must be same-origin`
+      );
+      assert.strictEqual(
+        entry.trustManifest?.identity,
+        'did:web:worldmonitor.app',
+        `${label} trust identity must be the domain DID`
+      );
+    }
+  });
+
+  it('the ai-catalog MCP entry points at the real server-card path', () => {
+    const mcpEntry = aiCatalog.entries.find((e) => e.type === 'application/mcp-server-card+json');
+    assert.ok(mcpEntry, 'ai-catalog must list the MCP server');
+    assert.ok(
+      mcpEntry.url.endsWith('/.well-known/mcp/server-card.json'),
+      'MCP entry URL must target the published server-card'
+    );
+    assert.ok(
+      existsSync(resolve(__dirname, '../public/.well-known/agent-skills/index.json')) ===
+        aiCatalog.entries.some((e) => e.url.endsWith('/.well-known/agent-skills/index.json')),
+      'agent-skills entry must exist iff the skills index is published'
+    );
   });
 });

@@ -788,7 +788,25 @@ export default async function handler(req, ctx) {
       const error = keyCheck.error === USER_API_KEY_GATEWAY_VALIDATION_ERROR
         ? 'Invalid API key'
         : keyCheck.error;
-      return jsonResponse({ error }, 401, headers);
+      // RFC 7235 §3.1 requires WWW-Authenticate on every 401. The challenge
+      // must reflect what this gate actually accepts: validateApiKey reads the
+      // X-WorldMonitor-Key / X-Api-Key headers (or tester cookies) — never
+      // Authorization: Bearer — so advertising a Bearer/OAuth challenge here
+      // sent agents down a flow that cannot succeed (post-#4867 review). The
+      // hint exists because this URL is what old copies of the api-catalog
+      // linkset advertised as the public status endpoint (#4856) — a keyless
+      // caller landing here should learn the public form, not dead-end.
+      return jsonResponse(
+        {
+          error,
+          hint: 'Detailed health requires an operator/enterprise API key. Public status: /api/health?compact=1',
+        },
+        401,
+        {
+          ...headers,
+          'WWW-Authenticate': 'ApiKey realm="worldmonitor-health", header="X-WorldMonitor-Key"',
+        }
+      );
     }
   }
 
@@ -994,9 +1012,26 @@ export default async function handler(req, ctx) {
     if (Object.keys(problems).length > 0) body.problems = problems;
   }
 
+  // Compact is the public keyless form polled by every dashboard tab (#4907):
+  // a short shared cache collapses per-tab polling onto ~one 196-key Redis
+  // pipeline per cache window per edge region. Browsers stay revalidate-always
+  // so a recovering tab sees fresh state within one poll. Everything else —
+  // the key-gated detailed response, the 401, the REDIS_DOWN 503 — keeps the
+  // no-store defaults from `headers` (caching a 401 would pin an auth failure;
+  // caching a 503 would mask recovery from HTTP monitors).
+  let responseHeaders = headers;
+  if (compact) {
+    const { 'CF-Cache-Status': _bypassMarker, ...cacheable } = headers;
+    responseHeaders = {
+      ...cacheable,
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+      'CDN-Cache-Control': 'public, s-maxage=60',
+    };
+  }
+
   return new Response(JSON.stringify(body, null, compact ? 0 : 2), {
     status: httpStatus,
-    headers,
+    headers: responseHeaders,
   });
 }
 

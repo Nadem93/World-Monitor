@@ -78,8 +78,11 @@ function readConfig(env: Record<string, string | undefined> = process.env as Rec
     invalidPrimaryRaw = rawPrimary;
   }
 
-  // SHADOW: default-on kill switch. Only exactly '0' disables.
-  const shadowEnabled = env.BRIEF_WHY_MATTERS_SHADOW !== '0';
+  // SHADOW: opt-in. Only exactly '1' enables. The original default-on
+  // rollout ran BOTH the analyst and gemini paths on every cache miss and
+  // silently kept doubling gemini spend after the comparison window ended
+  // (#4893) — a fresh deploy must never pay 2× unless someone asked for it.
+  const shadowEnabled = env.BRIEF_WHY_MATTERS_SHADOW === '1';
 
   // SAMPLE_PCT: default 100. Invalid/out-of-range → 100 + warn.
   const rawSample = env.BRIEF_WHY_MATTERS_SHADOW_SAMPLE_PCT;
@@ -234,6 +237,7 @@ async function runAnalystPath(story: StoryPayload, iso2: string | null): Promise
       maxTokens: 260,
       temperature: 0.4,
       timeoutMs: 15_000,
+      stage: 'brief-why-matters-analyst',
       // Provider is pinned via LLM_REASONING_PROVIDER env var (already
       // set to 'openrouter' in prod). `callLlmReasoning` routes through
       // the resolveProviderChain based on that env.
@@ -271,6 +275,7 @@ async function runGeminiPath(story: StoryPayload): Promise<string | null> {
       maxTokens: 120,
       temperature: 0.4,
       timeoutMs: 10_000,
+      stage: 'brief-why-matters-gemini',
       // Note: no `validate` option. The post-call parseWhyMatters check
       // below handles rejection by returning null. Using validate inside
       // callLlmReasoning would walk the provider chain on parse-reject,

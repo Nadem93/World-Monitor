@@ -1,7 +1,10 @@
 {
   "name": "worldmonitor",
+  "kind": "product",
   "description": "WorldMonitor's live global-intelligence stack as an MCP server: real-time markets, conflict events, aviation, maritime, energy, climate, health, displacement, supply chain, and AI-generated regional briefs.",
+  "icon": "https://www.worldmonitor.app/favico/apple-touch-icon.png",
   "version": "1.13.0",
+  "url": "https://worldmonitor.app/mcp",
   "serverUrl": "https://worldmonitor.app/mcp",
   "serverInfo": {
     "name": "worldmonitor",
@@ -15,6 +18,9 @@
     "type": "streamableHttp",
     "endpoint": "https://worldmonitor.app/mcp"
   },
+  "remotes": [
+    { "type": "streamable-http", "url": "https://worldmonitor.app/mcp" }
+  ],
   "capabilities": {
     "tools": true,
     "logging": true,
@@ -204,10 +210,12 @@
     ]
   },
   "documentation": {
-    "overview": "https://www.worldmonitor.app/docs/mcp-server",
+    "guide": "https://www.worldmonitor.app/docs/mcp-overview",
     "toolReference": "https://www.worldmonitor.app/docs/mcp-tools-reference",
     "apiReference": "https://www.worldmonitor.app/docs/api-reference",
-    "support": "https://www.worldmonitor.app/docs/getting-started"
+    "support": "https://www.worldmonitor.app/docs/support",
+    "pricing": "https://worldmonitor.app/pricing.md",
+    "productCatalog": "https://www.worldmonitor.app/api/product-catalog"
   },
   "rateLimits": {
     "perMinute": 60,

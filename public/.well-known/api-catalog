@@ -35,9 +35,31 @@
           "type": "text/html"
         }
       ],
+      "service-meta": [
+        {
+          "href": "https://worldmonitor.app/pricing.md",
+          "type": "text/markdown",
+          "title": "Pricing, plans & limits (machine-readable)"
+        },
+        {
+          "href": "https://www.worldmonitor.app/api/product-catalog",
+          "type": "application/json",
+          "title": "Live product catalog (tiers, prices, product IDs)"
+        },
+        {
+          "href": "https://www.worldmonitor.app/docs/openapi/CommerceService.openapi.yaml",
+          "type": "application/vnd.oai.openapi",
+          "title": "Commerce/pricing endpoints OpenAPI (separate from the root bundle)"
+        },
+        {
+          "href": "https://worldmonitor.app/support.md",
+          "type": "text/markdown",
+          "title": "Support channels & contact (machine-readable)"
+        }
+      ],
       "status": [
         {
-          "href": "https://api.worldmonitor.app/api/health",
+          "href": "https://api.worldmonitor.app/api/health?compact=1",
           "type": "application/json"
         }
       ]

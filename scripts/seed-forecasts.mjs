@@ -14446,6 +14446,27 @@ function createForecastLlmHttpError(resp, usableBudgetMs = Infinity) {
   return err;
 }
 
+// Seeder-side llm_call telemetry (#4895, post-#4901 review P1). Mirrors
+// server/_shared/usage.ts LlmCallEvent field-for-field and shares its gating
+// (USAGE_TELEMETRY=1 + AXIOM_API_TOKEN) so seeder events unify with the
+// Vercel-side stream in one APL query. Best-effort: one bounded POST per
+// logical call, never throws, never delays the seed meaningfully.
+const AXIOM_WM_API_USAGE_INGEST_URL = 'https://api.axiom.co/v1/datasets/wm_api_usage/ingest';
+
+async function emitForecastLlmEvents(events) {
+  if (process.env.USAGE_TELEMETRY !== '1' || events.length === 0) return;
+  const token = process.env.AXIOM_API_TOKEN;
+  if (!token) return;
+  try {
+    await fetch(AXIOM_WM_API_USAGE_INGEST_URL, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(events),
+      signal: AbortSignal.timeout(1_500),
+    });
+  } catch { /* telemetry must never affect the seed */ }
+}
+
 async function callForecastLLM(systemPrompt, userPrompt, options = {}) {
   if (forecastLlmCallOverrideForTests) {
     return await forecastLlmCallOverrideForTests(systemPrompt, userPrompt, options);
@@ -14459,63 +14480,121 @@ async function callForecastLLM(systemPrompt, userPrompt, options = {}) {
     : providers.map(provider => provider.name).join(',');
   console.log(`  [LLM:${stage}] providerOrder=${requestedOrder} modelOverrides=${JSON.stringify(options.modelOverrides || {})}`);
 
-  for (const provider of providers) {
-    const apiKey = process.env[provider.envKey];
-    if (!apiKey) continue;
-    try {
-      const forecastFetch = forecastLlmFetchForTests || ((...args) => globalThis.fetch(...args));
-      const retryDelayMs = Number.isFinite(options.retryDelayMs)
-        ? Math.max(0, Math.floor(options.retryDelayMs))
-        : FORECAST_LLM_RETRY_BASE_MS;
-      const resp = await withRetry(async () => {
-        const usableBudgetMs = getUsableForecastLlmBudgetMs(budgetStartedAtMs, stageBudgetMs);
-        if (usableBudgetMs <= 0) throw createForecastLlmBudgetError(stage, budgetStartedAtMs, stageBudgetMs);
-        const response = await forecastFetch(provider.apiUrl, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'User-Agent': CHROME_UA,
-            ...(provider.name === 'openrouter' ? { 'HTTP-Referer': 'https://worldmonitor.app', 'X-Title': 'World Monitor' } : {}),
-          },
-          body: JSON.stringify({
-            model: provider.model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            max_tokens: options.maxTokens || 1500,
-            temperature: options.temperature ?? 0.3,
-          }),
-          signal: AbortSignal.timeout(Math.max(1, Math.min(provider.timeout, usableBudgetMs))),
-        });
-        if (!response.ok) {
-          throw createForecastLlmHttpError(
-            response,
-            getUsableForecastLlmBudgetMs(budgetStartedAtMs, stageBudgetMs),
-          );
-        }
-        return response;
-      }, FORECAST_LLM_PROVIDER_MAX_RETRIES, retryDelayMs);
+  // One event per ATTEMPT: every withRetry retry and every provider fallback
+  // re-sends the full prompt, so each gets its own fallback_index. Budget
+  // pre-emptions (thrown before the fetch) are not attempts and emit nothing.
+  const llmPromptChars = (systemPrompt?.length ?? 0) + (userPrompt?.length ?? 0);
+  const llmMaxTokens = options.maxTokens || 1500;
+  const llmEvents = [];
+  let llmAttemptIndex = 0;
+  const recordLlmAttempt = (providerName, model, ok, startedAtMs, extra = {}) => {
+    llmEvents.push({
+      _time: new Date().toISOString(),
+      event_type: 'llm_call',
+      provider: providerName,
+      model,
+      stage,
+      ok,
+      duration_ms: Date.now() - startedAtMs,
+      tokens_total: extra.tokensTotal ?? 0,
+      tokens_prompt: extra.tokensPrompt ?? 0,
+      tokens_completion: extra.tokensCompletion ?? 0,
+      prompt_chars: llmPromptChars,
+      max_tokens: llmMaxTokens,
+      fallback_index: llmAttemptIndex++,
+      reason: extra.reason || '',
+    });
+  };
 
-      let json;
+  try {
+    for (const provider of providers) {
+      const apiKey = process.env[provider.envKey];
+      if (!apiKey) continue;
+      let attemptT0 = Date.now();
       try {
-        json = await resp.json();
+        const forecastFetch = forecastLlmFetchForTests || ((...args) => globalThis.fetch(...args));
+        const retryDelayMs = Number.isFinite(options.retryDelayMs)
+          ? Math.max(0, Math.floor(options.retryDelayMs))
+          : FORECAST_LLM_RETRY_BASE_MS;
+        const resp = await withRetry(async () => {
+          const usableBudgetMs = getUsableForecastLlmBudgetMs(budgetStartedAtMs, stageBudgetMs);
+          if (usableBudgetMs <= 0) throw createForecastLlmBudgetError(stage, budgetStartedAtMs, stageBudgetMs);
+          attemptT0 = Date.now();
+          try {
+            const response = await forecastFetch(provider.apiUrl, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                'User-Agent': CHROME_UA,
+                ...(provider.name === 'openrouter' ? { 'HTTP-Referer': 'https://worldmonitor.app', 'X-Title': 'World Monitor' } : {}),
+              },
+              body: JSON.stringify({
+                model: provider.model,
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+                max_tokens: options.maxTokens || 1500,
+                temperature: options.temperature ?? 0.3,
+              }),
+              signal: AbortSignal.timeout(Math.max(1, Math.min(provider.timeout, usableBudgetMs))),
+            });
+            if (!response.ok) {
+              recordLlmAttempt(provider.name, provider.model, false, attemptT0, { reason: `http_${response.status}` });
+              const httpErr = createForecastLlmHttpError(
+                response,
+                getUsableForecastLlmBudgetMs(budgetStartedAtMs, stageBudgetMs),
+              );
+              httpErr.__llmAttemptRecorded = true;
+              throw httpErr;
+            }
+            return response;
+          } catch (err) {
+            if (!err?.__llmAttemptRecorded && !isForecastLlmBudgetError(err)) {
+              err.__llmAttemptRecorded = true;
+              const name = err?.name;
+              recordLlmAttempt(provider.name, provider.model, false, attemptT0, {
+                reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'fetch_error',
+              });
+            }
+            throw err;
+          }
+        }, FORECAST_LLM_PROVIDER_MAX_RETRIES, retryDelayMs);
+
+        let json;
+        try {
+          json = await resp.json();
+        } catch (err) {
+          console.warn(`  [LLM:${stage}] ${provider.name} invalid response: ${err.message}`);
+          recordLlmAttempt(provider.name, provider.model, false, attemptT0, { reason: 'invalid_json' });
+          continue;
+        }
+        const tokensExtra = {
+          tokensTotal: json.usage?.total_tokens ?? 0,
+          tokensPrompt: json.usage?.prompt_tokens ?? 0,
+          tokensCompletion: json.usage?.completion_tokens ?? 0,
+        };
+        const text = json.choices?.[0]?.message?.content?.trim();
+        if (!text || text.length < 20) {
+          recordLlmAttempt(provider.name, provider.model, false, attemptT0, { ...tokensExtra, reason: 'empty' });
+          continue;
+        }
+        const model = json.model || provider.model;
+        console.log(`  [LLM:${stage}] ${provider.name} success model=${model}`);
+        recordLlmAttempt(provider.name, model, true, attemptT0, tokensExtra);
+        return { text, model, provider: provider.name };
       } catch (err) {
-        console.warn(`  [LLM:${stage}] ${provider.name} invalid response: ${err.message}`);
-        continue;
+        // All real attempts were recorded inside the retry callback; budget
+        // pre-emptions never sent the prompt, so nothing to record here.
+        console.warn(`  [LLM:${stage}] ${provider.name} ${err.message}`);
+        if (isForecastLlmBudgetError(err)) return null;
       }
-      const text = json.choices?.[0]?.message?.content?.trim();
-      if (!text || text.length < 20) continue;
-      const model = json.model || provider.model;
-      console.log(`  [LLM:${stage}] ${provider.name} success model=${model}`);
-      return { text, model, provider: provider.name };
-    } catch (err) {
-      console.warn(`  [LLM:${stage}] ${provider.name} ${err.message}`);
-      if (isForecastLlmBudgetError(err)) return null;
     }
+    return null;
+  } finally {
+    await emitForecastLlmEvents(llmEvents);
   }
-  return null;
 }
 
 async function redisSet(url, token, key, data, ttlSeconds) {
@@ -14547,19 +14626,26 @@ async function redisSet(url, token, key, data, ttlSeconds) {
   } catch (err) { console.warn(`  [Redis] Cache write failed for ${key}: ${err.message}`); }
 }
 
-function buildCacheHash(preds) {
+// #4914: cache identity = the exact prompt text (system + user) — the same
+// pattern as the regional narrative cache (#4911). The previous hash covered
+// raw values the prompt never renders (probability floats vs the prompt's
+// integer percents, every newsContext entry vs the prompt's top-3, cascade
+// probability floats) so hourly drift minted a fresh key for a
+// byte-identical prompt and the seeder paid a full generation every run.
+// Hashing the prompt makes staleness impossible by construction: any
+// prompt-visible change (including a deploy-time system-prompt edit) is a
+// new key.
+function buildNarrativeCacheHash(systemPrompt, userPrompt) {
   return crypto.createHash('sha256')
-    .update(JSON.stringify(preds.map(p => ({
-      id: p.id, d: p.domain, r: p.region, p: p.probability,
-      s: p.signals.map(s => s.value).join(','),
-      c: p.calibration?.drift,
-      n: (p.newsContext || []).join(','),
-      t: p.trend,
-      j: p.projections ? `${p.projections.h24}|${p.projections.d7}|${p.projections.d30}` : '',
-      g: (p.cascades || []).map(cascade => `${cascade.domain}:${cascade.effect}:${cascade.probability}`).join(','),
-    }))))
+    .update(`${systemPrompt}\u0000${userPrompt}`)
     .digest('hex').slice(0, 16);
 }
+
+// Prompt-hash keys self-invalidate on any input change, so the TTL is only
+// an eviction bound, not a freshness control. The old 3600s TTL expired
+// between hourly runs, guaranteeing a paid regeneration even for an
+// unchanged prompt.
+const NARRATIVE_CACHE_TTL_SEC = 24 * 60 * 60;
 
 function buildUserPrompt(preds) {
   const predsText = preds.map((p, i) => {
@@ -14864,7 +14950,7 @@ async function enrichScenariosWithLLM(predictions) {
 
   // Call 1: Combined scenario + perspectives for top-2
   if (topWithPerspectives.length > 0) {
-    const hash = buildCacheHash(topWithPerspectives);
+    const hash = buildNarrativeCacheHash(COMBINED_SYSTEM_PROMPT, buildUserPrompt(topWithPerspectives));
     const cacheKey = `forecast:llm-combined:${hash}`;
     console.log(`  [LLM:combined] start selected=${topWithPerspectives.length} cacheKey=${cacheKey}`);
     const cached = await redisGet(url, token, cacheKey);
@@ -14999,7 +15085,7 @@ async function enrichScenariosWithLLM(predictions) {
           latencyMs: Math.round(Date.now() - t0), cached: false,
         }));
 
-        if (items.length > 0) await redisSet(url, token, cacheKey, { items }, 3600);
+        if (items.length > 0) await redisSet(url, token, cacheKey, { items }, NARRATIVE_CACHE_TTL_SEC);
       } else {
         enrichmentMeta.combined.failureReason = 'call_failed';
         console.warn('  [LLM:combined] call failed');
@@ -15011,7 +15097,7 @@ async function enrichScenariosWithLLM(predictions) {
 
   // Call 2: Scenario-only for predictions 3-4
   if (scenarioOnly.length > 0) {
-    const hash = buildCacheHash(scenarioOnly);
+    const hash = buildNarrativeCacheHash(SCENARIO_SYSTEM_PROMPT, buildUserPrompt(scenarioOnly));
     const cacheKey = `forecast:llm-scenarios:${hash}`;
     console.log(`  [LLM:scenario] start selected=${scenarioOnly.length} cacheKey=${cacheKey}`);
     const cached = await redisGet(url, token, cacheKey);
@@ -15109,7 +15195,7 @@ async function enrichScenariosWithLLM(predictions) {
               ...(c.contrarianCase ? { contrarianCase: c.contrarianCase } : {}),
             });
           }
-          await redisSet(url, token, cacheKey, { scenarios }, 3600);
+          await redisSet(url, token, cacheKey, { scenarios }, NARRATIVE_CACHE_TTL_SEC);
         }
       } else {
         enrichmentMeta.scenario.failureReason = 'call_failed';
@@ -16169,6 +16255,24 @@ function validateMarketImplications(cards, allowedTickers = ALL_ALLOWED_TICKERS)
 
 const MARKET_IMPLICATIONS_META_KEY = 'seed-meta:intelligence:market-implications';
 const MARKET_IMPLICATIONS_META_TTL = 86400 * 7;
+const MARKET_IMPLICATIONS_STAGE_CACHE_PREFIX = 'forecast:llm-market-implications:';
+
+// Input-hash guard for the market_implications LLM stage (#4894). This was
+// the only forecast stage with no pre-call cache — a 2,500-token completion
+// regenerated every hourly run (plus every triggered re-run) even when the
+// world state hadn't moved. Numbers are quantized to ONE significant digit
+// before hashing: routine price ticks don't defeat the guard, while a
+// bucket-flipping move OR any text change (new signal, sector leadership,
+// theater alert) still regenerates. Percent-change fields — the semantically
+// load-bearing numbers — live in the 0.1–10 range where one significant
+// digit still separates 0.3% from 0.9% from 8%.
+function buildMarketImplicationsFingerprint(context) {
+  const quantized = String(context ?? '').replace(/-?\d+(?:\.\d+)?/g, (match) => {
+    const n = Number(match);
+    return Number.isFinite(n) && n !== 0 ? Number(n).toPrecision(1) : '0';
+  });
+  return crypto.createHash('sha256').update(quantized).digest('hex').slice(0, 16);
+}
 
 function marketImplicationsMetaErrorReason(reason) {
   return String(reason || 'unknown').replace(/\s+/g, ' ').slice(0, 240);
@@ -16204,6 +16308,26 @@ async function buildAndSeedMarketImplications(inputs) {
   const startMs = Date.now();
   console.log('  [MarketImplications] Building world-state context...');
   const context = buildMarketImplicationsContext(inputs);
+
+  const { url, token } = getRedisCredentials();
+
+  // Input-hash guard: unchanged world state → republish the cached cards
+  // (keeps the canonical key + seed-meta fresh) and skip the LLM entirely.
+  const fingerprint = buildMarketImplicationsFingerprint(context);
+  const stageCacheKey = `${MARKET_IMPLICATIONS_STAGE_CACHE_PREFIX}${fingerprint}`;
+  try {
+    const cachedStage = await redisGet(url, token, stageCacheKey);
+    if (Array.isArray(cachedStage?.cards) && cachedStage.cards.length > 0) {
+      const payload = { cards: cachedStage.cards, generatedAt: new Date().toISOString(), model: cachedStage.model || '' };
+      await redisSet(url, token, MARKET_IMPLICATIONS_KEY, payload, MARKET_IMPLICATIONS_TTL);
+      const meta = { fetchedAt: Date.now(), recordCount: cachedStage.cards.length, status: 'ok' };
+      await redisSet(url, token, MARKET_IMPLICATIONS_META_KEY, meta, MARKET_IMPLICATIONS_META_TTL);
+      console.log(JSON.stringify({ event: 'llm_market_implications', cached: true, hash: fingerprint, count: cachedStage.cards.length }));
+      console.log(`  [MarketImplications] Republished ${cachedStage.cards.length} cached cards (inputs unchanged, ${Math.round(Date.now() - startMs)}ms)`);
+      return;
+    }
+  } catch { /* guard is best-effort — fall through to live generation */ }
+
   const userPrompt = `World state as of ${new Date().toISOString()}:\n\n${context}\n\nAllowed tickers: ${[...ALL_ALLOWED_TICKERS].join(', ')}`;
 
   const llmOptions = getForecastLlmCallOptions('market_implications');
@@ -16228,8 +16352,6 @@ async function buildAndSeedMarketImplications(inputs) {
     await writeMarketImplicationsFailureMeta('no_parseable_cards');
     return;
   }
-
-  const { url, token } = getRedisCredentials();
 
   // Extend the curated static allowlist with tradeable equity symbols from Redis.
   // ALL_ALLOWED_TICKERS is always preserved (ETFs, defense, commodities, forex, rates, crypto).
@@ -16265,6 +16387,10 @@ async function buildAndSeedMarketImplications(inputs) {
 
   const meta = { fetchedAt: Date.now(), recordCount: cards.length, status: 'ok' };
   await redisSet(url, token, MARKET_IMPLICATIONS_META_KEY, meta, MARKET_IMPLICATIONS_META_TTL);
+
+  // Only validated live generations feed the input-hash guard; failures above
+  // returned early so a bad run can never pin bad cards for the TTL.
+  await redisSet(url, token, stageCacheKey, { cards, model: result.model || '' }, MARKET_IMPLICATIONS_TTL);
 
   const durationMs = Date.now() - startMs;
   console.log(`  [MarketImplications] Published ${cards.length} cards to ${MARKET_IMPLICATIONS_KEY} (${Math.round(durationMs)}ms, model=${result.model || 'unknown'})`);
@@ -17530,6 +17656,7 @@ export {
   computeHeadlineRelevance,
   computeMarketMatchScore,
   buildUserPrompt,
+  buildNarrativeCacheHash,
   buildForecastCase,
   buildForecastCases,
   buildPriorForecastSnapshot,
@@ -17700,6 +17827,9 @@ export {
   __redisSetForTests,
   __setForecastLlmCallOverrideForTests,
   __setForecastLlmTransportForTests,
+  callForecastLLM,
   __setForecastLlmRunDeadlineForTests,
   __setRedisStoreForTests,
+  buildMarketImplicationsFingerprint,
+  buildAndSeedMarketImplications,
 };
