@@ -13,6 +13,7 @@ import {
   fmtPrice, escapeHtml,
 } from './api.js';
 import { frPlace, frEonetTitle } from './fr.js';
+import { openCoinDetail, getMarketCaps, fmtCompact } from './finance.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -255,18 +256,26 @@ export async function loadMarkets(state) {
     const fxPart = state.fxTicker || '';
     $('ticker-track').innerHTML = items + fxPart + items + fxPart;
 
-    // Tableau crypto
+    // Tableau crypto (lignes cliquables → fiche détaillée)
+    const caps = getMarketCaps();
     $('crypto-body').innerHTML = CRYPTO.map(c => {
       const t = bySym[c.sym];
       if (!t) return '';
       const chg = +t.priceChangePercent;
-      return `<tr>
+      const cap = caps[c.code]?.cap;
+      return `<tr class="crypto-row" role="button" tabindex="0" data-sym="${c.sym}" data-code="${c.code}" title="Voir la fiche ${escapeHtml(c.name)}">
         <td><span class="asset-cell"><span class="asset-sym">${c.code}</span><span class="asset-name">${escapeHtml(c.name)}</span></span></td>
         <td class="px">${fmtPrice(t.lastPrice)} $</td>
         <td class="chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)} %</td>
+        <td class="cap-cell">${cap ? fmtCompact(cap) : '—'}</td>
         <td class="spark-cell" id="spark-${c.code}"></td>
       </tr>`;
     }).join('');
+    $('crypto-body').querySelectorAll('.crypto-row').forEach(r => {
+      const open = () => openCoinDetail(r.dataset.sym, r.dataset.code);
+      r.addEventListener('click', open);
+      r.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
 
     state.pulse.markets = Math.min(15,
       CRYPTO.slice(0, 5).reduce((s, c) => s + Math.abs(+(bySym[c.sym]?.priceChangePercent || 0)), 0) / 5 * 2.5);

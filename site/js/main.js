@@ -12,6 +12,10 @@ import {
 } from './panels.js';
 import { initCountryDrawer, openCountry } from './country.js';
 import { initFr } from './fr.js';
+import {
+  loadGlobalBarometer, loadMarketCaps, loadTopMovers,
+  initCoinDrawer, initConverter,
+} from './finance.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -162,6 +166,18 @@ async function init() {
   // Onglets actualités
   initNewsTabs(state, () => loadNews(state));
 
+  // Finance : fiche crypto, convertisseur, onglets internes
+  initCoinDrawer();
+  initConverter();
+  const finTabs = $('fin-tabs');
+  finTabs.addEventListener('click', (e) => {
+    const btn = e.target.closest('.fin-tab');
+    if (!btn) return;
+    finTabs.querySelectorAll('.fin-tab').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.fin-pane').forEach(p => { p.hidden = p.dataset.pane !== btn.dataset.tab; });
+    if (btn.dataset.tab === 'movers') loadTopMovers();
+  });
+
   // Bouton tout actualiser
   $('btn-refresh').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
@@ -175,6 +191,7 @@ async function init() {
     await Promise.allSettled([
       loadQuakes(map, state), loadEonet(map, state), loadMarkets(state),
       loadFx(state), loadFng(state), loadWeather(), loadTech(), loadNews(state),
+      loadGlobalBarometer(), loadMarketCaps(),
     ]);
     renderPulse(); renderAlert();
     btn.classList.remove('spin');
@@ -184,7 +201,9 @@ async function init() {
 
   loadQuakes(map, state).then(() => { renderPulse(); renderAlert(); });
   loadEonet(map, state).then(renderPulse);
-  loadMarkets(state).then(renderPulse);
+  // Capitalisations d'abord, puis tableau crypto (pour la colonne Cap.)
+  loadMarketCaps().then(() => loadMarkets(state).then(renderPulse));
+  loadGlobalBarometer();
   loadFx(state).then(() => loadMarkets(state));
   loadFng(state).then(renderPulse);
   loadWeather();
@@ -198,6 +217,8 @@ async function init() {
   setInterval(() => loadQuakes(map, state).then(() => { renderPulse(); renderAlert(); }), REFRESH.quakes);
   setInterval(() => loadEonet(map, state).then(renderPulse), REFRESH.eonet);
   setInterval(() => loadMarkets(state).then(renderPulse), REFRESH.ticker);
+  setInterval(() => loadGlobalBarometer(), 300_000);
+  setInterval(() => loadMarketCaps(), 300_000);
   setInterval(() => loadFx(state), REFRESH.fx);
   setInterval(() => loadFng(state).then(renderPulse), 3_600_000);
   setInterval(() => loadWeather(), REFRESH.weather);

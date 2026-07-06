@@ -576,12 +576,208 @@ button.row-item { width: 100%; background: none; border-left: 0; border-right: 0
 .chg.down { color: var(--red); }
 
 .spark-cell { text-align: right; }
-.spark { width: 88px; height: 24px; }
+.spark { width: 72px; height: 22px; }
 .spark polyline { fill: none; stroke-width: 1.4; }
 .spark .up { stroke: var(--teal); }
 .spark .down { stroke: var(--red); }
 .spark polygon.up   { fill: rgba(47,214,190,.12); stroke: none; }
 .spark polygon.down { fill: rgba(255,90,100,.12); stroke: none; }
+
+.crypto-table th.th-cap, .cap-cell { text-align: right; font-family: var(--mono); color: var(--dim); }
+.cap-cell { font-size: 11px; }
+.crypto-row { cursor: pointer; transition: background .12s; }
+.crypto-row:hover { background: var(--panel-2); }
+.crypto-row:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+
+/* ─────────────── Finance : baromètre ─────────────── */
+
+.baro {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1.4fr;
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.baro-cell {
+  background: var(--panel);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.baro-k { font-family: var(--mono); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.baro-k b { color: var(--dim); }
+.baro-v { font-family: var(--mono); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.baro-chg { font-family: var(--mono); font-size: 11px; font-weight: 600; }
+.baro-chg.up { color: var(--teal); }
+.baro-chg.down { color: var(--red); }
+.baro-dom { justify-content: center; }
+.baro-dom-bar { height: 5px; border-radius: 3px; background: var(--line-strong); overflow: hidden; margin-top: 4px; }
+.baro-dom-fill { height: 100%; background: linear-gradient(to right, var(--amber), #FFCE7A); width: 0%; transition: width .8s ease; }
+
+/* ─────────────── Finance : onglets ─────────────── */
+
+.fin-tabs { display: flex; gap: 4px; padding: 8px 10px 0; }
+.fin-tab {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  padding: 4px 12px;
+  border-radius: 20px;
+  transition: color .15s, background .15s;
+}
+.fin-tab:hover { color: var(--ink); }
+.fin-tab.active { color: var(--amber); background: var(--amber-soft); border-color: rgba(255,174,61,.35); }
+.fin-body { padding-top: 8px; }
+.fin-hint { font-family: var(--mono); font-size: 9.5px; color: var(--faint); margin-top: 8px; text-align: center; }
+
+/* ─────────────── Finance : palmarès ─────────────── */
+
+.movers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.movers-head {
+  font-family: var(--cond);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 2px 4px 6px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+}
+.movers-head.up { color: var(--teal); }
+.movers-head.down { color: var(--red); }
+.mover-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas: "code price" "code chg";
+  align-items: center;
+  gap: 0 8px;
+  padding: 5px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.mover-row:hover { background: var(--panel-2); }
+.mover-row:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.mover-code { grid-area: code; font-family: var(--mono); font-weight: 600; font-size: 12.5px; }
+.mover-price { grid-area: price; font-size: 11px; color: var(--dim); text-align: right; }
+.mover-chg { grid-area: chg; text-align: right; font-size: 12px; }
+
+/* ─────────────── Finance : convertisseur ─────────────── */
+
+.converter {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.cv-row { display: grid; grid-template-columns: 1fr 1fr auto 1fr; gap: 6px; align-items: center; }
+.cv-amount, .cv-select {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  padding: 7px 8px;
+  min-width: 0;
+}
+.cv-amount { font-weight: 600; }
+.cv-select { cursor: pointer; }
+.cv-swap {
+  width: 30px; height: 30px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--amber);
+  font-size: 15px;
+}
+.cv-swap:hover { border-color: var(--amber); }
+.cv-result {
+  margin-top: 12px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--dim);
+}
+.cv-big { font-size: 24px; font-weight: 600; color: var(--ink); }
+.cv-rate { display: block; font-size: 10.5px; color: var(--faint); margin-top: 4px; }
+
+/* ─────────────── Finance : fiche d'un actif (volet) ─────────────── */
+
+.coin-drawer {
+  position: fixed;
+  top: 0; right: 0; bottom: 0;
+  width: min(440px, 94vw);
+  background: var(--panel);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: -18px 0 50px rgba(0,0,0,.55);
+  z-index: 90;
+  transform: translateX(102%);
+  transition: transform .3s cubic-bezier(.2,.8,.25,1);
+  overflow-y: auto;
+}
+.coin-drawer.open { transform: translateX(0); }
+@media (prefers-reduced-motion: reduce) { .coin-drawer { transition: none; } }
+.coin-inner { padding: 18px; }
+
+.coin-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-right: 34px; }
+.coin-name { font-family: var(--cond); font-size: 22px; font-weight: 700; letter-spacing: .03em; }
+.coin-code { font-family: var(--mono); font-size: 10.5px; color: var(--amber); letter-spacing: .08em; margin-top: 2px; }
+.coin-price-block { text-align: right; }
+.coin-price { font-family: var(--mono); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.coin-chg { font-family: var(--mono); font-size: 12px; font-weight: 600; }
+.coin-chg.up { color: var(--teal); }
+.coin-chg.down { color: var(--red); }
+
+.coin-tf { display: flex; gap: 4px; margin: 16px 0 10px; }
+.coin-tf-btn {
+  flex: 1;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 0;
+  border-radius: 4px;
+  transition: color .15s, border-color .15s;
+}
+.coin-tf-btn:hover { color: var(--ink); }
+.coin-tf-btn.active { color: var(--amber); border-color: var(--amber); background: var(--amber-soft); }
+
+.coin-chart {
+  height: 156px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #060D17;
+  overflow: hidden;
+}
+.cc-svg { width: 100%; height: 100%; display: block; }
+.cc-area.up { fill: rgba(47,214,190,.14); }
+.cc-area.down { fill: rgba(255,90,100,.14); }
+.cc-line { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.cc-line.up { stroke: var(--teal); }
+.cc-line.down { stroke: var(--red); }
+.cc-axis { fill: var(--faint); font-family: var(--mono); font-size: 8px; }
+.cc-price { fill: var(--dim); font-family: var(--mono); font-size: 8.5px; }
+
+.coin-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 14px; }
+.coin-stat {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.coin-stat-k { font-family: var(--mono); font-size: 8.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.coin-stat-v { font-family: var(--mono); font-size: 13px; font-weight: 600; }
 
 .sub-head {
   font-family: var(--cond);

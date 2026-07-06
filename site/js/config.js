@@ -19,7 +19,9 @@ export const API = {
   eonet:   'https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100',
   gdelt:   'https://api.gdeltproject.org/api/v2/doc/doc',
   binance: 'https://data-api.binance.vision/api/v3',
+  coingecko: 'https://api.coingecko.com/api/v3',
   fx:      'https://api.frankfurter.dev/v1/latest',
+  fxBase:  'https://api.frankfurter.dev/v1',
   fng:     'https://api.alternative.me/fng/?limit=1',
   meteo:   'https://api.open-meteo.com/v1/forecast',
   hnTop:   'https://hacker-news.firebaseio.com/v0/topstories.json',
@@ -27,19 +29,30 @@ export const API = {
   iss:     'https://api.wheretheiss.at/v1/satellites/25544',
 };
 
-// Cryptomonnaies suivies (symboles Binance)
+// Cryptomonnaies suivies (symbole Binance, code affiché, nom, identifiant CoinGecko)
 export const CRYPTO = [
-  { sym: 'BTCUSDT',  code: 'BTC',  name: 'Bitcoin' },
-  { sym: 'ETHUSDT',  code: 'ETH',  name: 'Ethereum' },
-  { sym: 'SOLUSDT',  code: 'SOL',  name: 'Solana' },
-  { sym: 'BNBUSDT',  code: 'BNB',  name: 'BNB' },
-  { sym: 'XRPUSDT',  code: 'XRP',  name: 'XRP' },
-  { sym: 'DOGEUSDT', code: 'DOGE', name: 'Dogecoin' },
-  { sym: 'PAXGUSDT', code: 'OR',   name: 'Or (once, jeton PAXG)' },
+  { sym: 'BTCUSDT',  code: 'BTC',  name: 'Bitcoin',   cg: 'bitcoin' },
+  { sym: 'ETHUSDT',  code: 'ETH',  name: 'Ethereum',  cg: 'ethereum' },
+  { sym: 'SOLUSDT',  code: 'SOL',  name: 'Solana',    cg: 'solana' },
+  { sym: 'BNBUSDT',  code: 'BNB',  name: 'BNB',       cg: 'binancecoin' },
+  { sym: 'XRPUSDT',  code: 'XRP',  name: 'XRP',       cg: 'ripple' },
+  { sym: 'ADAUSDT',  code: 'ADA',  name: 'Cardano',   cg: 'cardano' },
+  { sym: 'DOGEUSDT', code: 'DOGE', name: 'Dogecoin',  cg: 'dogecoin' },
+  { sym: 'AVAXUSDT', code: 'AVAX', name: 'Avalanche', cg: 'avalanche-2' },
+  { sym: 'LINKUSDT', code: 'LINK', name: 'Chainlink', cg: 'chainlink' },
+  { sym: 'PAXGUSDT', code: 'OR',   name: 'Or (once, jeton PAXG)', cg: 'pax-gold' },
 ];
 
-// Devises affichées (base EUR)
+// Devises affichées dans la grille (base EUR)
 export const FX_SYMBOLS = ['USD', 'GBP', 'JPY', 'CHF', 'CNY', 'CAD'];
+
+// Devises proposées dans le convertisseur (code → libellé FR)
+export const CONVERT_CURRENCIES = {
+  EUR: 'Euro', USD: 'Dollar américain', GBP: 'Livre sterling', JPY: 'Yen japonais',
+  CHF: 'Franc suisse', CNY: 'Yuan chinois', CAD: 'Dollar canadien',
+  AUD: 'Dollar australien', BRL: 'Réal brésilien', INR: 'Roupie indienne',
+  TRY: 'Livre turque', ZAR: 'Rand sud-africain', SGD: 'Dollar de Singapour',
+};
 
 // Villes météo (nom FR, lat, lon)
 export const WEATHER_CITIES = [
