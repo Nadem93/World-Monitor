@@ -459,3 +459,92 @@ function fxAreaChart(pts) {
     <text x="${W - padR}" y="${H - padB}" class="cc-price" text-anchor="end">${min.toFixed(4)}</text>
     ${ticks}</svg>`;
 }
+
+// ═══════════════ Bourse & matières premières (réseau Pyth) ═══════════════
+
+import { PYTH_GROUPS } from './config.js';
+
+/** Prix temps réel de tous les actifs Pyth en un seul appel. */
+async function pythLatest() {
+  const ids = PYTH_GROUPS.flatMap(g => g.assets.map(a => a.id));
+  const qs = ids.map(i => 'ids%5B%5D=' + i).join('&');
+  const { data } = await getCached('pyth-latest', `${API.pyth}?${qs}&parsed=true`, 60_000);
+  const out = {};
+  for (const p of data.parsed || []) {
+    out[p.id] = Number(p.price.price) * 10 ** p.price.expo;
+  }
+  return out;
+}
+
+/** Historique quotidien (~10 jours) d'un actif : clôtures pour variation + sparkline. */
+async function pythHistory(sym) {
+  const now = Math.floor(Date.now() / 1000);
+  const from = now - 10 * 86400;
+  const url = `${API.pythHist}?symbol=${encodeURIComponent(sym)}&resolution=D&from=${from}&to=${now}`;
+  const { data } = await getCached(`pyth-h:${sym}`, url, 900_000);
+  return data.s === 'ok' ? (data.c || []) : [];
+}
+
+export async function loadWorldMarkets() {
+  const box = $('bourse-body');
+  if (!box) return;
+  try {
+    const prices = await pythLatest();
+
+    // Structure d'abord (prix temps réel), variations ensuite
+    box.innerHTML = PYTH_GROUPS.map(g => `
+      <h3 class="sub-head">${g.label} <span class="src-note">(réseau Pyth)</span></h3>
+      <table class="crypto-table" aria-label="${g.label}">
+        <tbody>
+          ${g.assets.map(a => {
+            const v = prices[a.id];
+            return `<tr class="pyth-row" data-sym="${a.sym}">
+              <td><span class="asset-cell"><span class="asset-sym">${a.code}</span><span class="asset-name">${escapeHtml(a.name)}</span></span></td>
+              <td class="px">${v != null ? fmtPrice(v) + ' $' : '—'}</td>
+              <td class="chg" id="pchg-${a.code.replace(/[^A-Z]/g, '')}">…</td>
+              <td class="spark-cell" id="pspark-${a.code.replace(/[^A-Z]/g, '')}"></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`).join('') +
+      '<p class="fin-hint">Actions et indices : cours en séance uniquement (marché US) ; dernier échange connu sinon.</p>';
+
+    // Variations + sparklines, en tâche de fond, sans bloquer l'affichage
+    for (const g of PYTH_GROUPS) {
+      for (const a of g.assets) {
+        pythHistory(a.sym).then(closes => {
+          const key = a.code.replace(/[^A-Z]/g, '');
+          const chgEl = document.getElementById(`pchg-${key}`);
+          const spEl = document.getElementById(`pspark-${key}`);
+          if (!closes.length || closes.length < 2) { if (chgEl) chgEl.textContent = '—'; return; }
+          const cur = prices[a.id] ?? closes[closes.length - 1];
+          const prev = closes[closes.length - 2];
+          const chg = (cur - prev) / prev * 100;
+          if (chgEl) {
+            chgEl.textContent = pct(chg);
+            chgEl.className = 'chg ' + cls(chg);
+          }
+          if (spEl) spEl.innerHTML = miniSpark(closes.concat(cur));
+        }).catch(() => {
+          const chgEl = document.getElementById(`pchg-${a.code.replace(/[^A-Z]/g, '')}`);
+          if (chgEl) chgEl.textContent = '—';
+        });
+      }
+    }
+  } catch {
+    box.innerHTML = '<div class="placeholder err">Flux Pyth momentanément indisponible — nouvel essai au prochain passage sur l\'onglet.</div>';
+  }
+}
+
+function miniSpark(values) {
+  if (!values?.length) return '';
+  const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+  const W2 = 72, H2 = 22, pad = 2;
+  const pts = values.map((v, i) => [
+    pad + i * (W2 - 2 * pad) / (values.length - 1),
+    H2 - pad - (v - min) / span * (H2 - 2 * pad),
+  ]);
+  const dir = values[values.length - 1] >= values[0] ? 'up' : 'down';
+  const line = pts.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${W2} ${H2}" aria-hidden="true"><polyline class="${dir}" points="${line}"/></svg>`;
+}

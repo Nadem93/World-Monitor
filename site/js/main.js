@@ -15,7 +15,7 @@ import { initFr } from './fr.js';
 import {
   loadGlobalBarometer, loadMarketCaps, loadTopMovers,
   initCoinDrawer, initConverter,
-  loadTrending, loadSectors, loadMacro, loadFxChart,
+  loadTrending, loadSectors, loadMacro, loadFxChart, loadWorldMarkets,
 } from './finance.js';
 
 const $ = (id) => document.getElementById(id);
@@ -180,6 +180,7 @@ async function init() {
     document.querySelectorAll('.fin-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
     // Chargements à la demande (une fois par onglet, puis rafraîchis en arrière-plan)
     if (tab === 'movers') { loadTopMovers(); if (!finLoaded.movers) { loadSectors(); finLoaded.movers = 1; } }
+    if (tab === 'bourse') loadWorldMarkets();
     if (tab === 'devises' && !finLoaded.devises) { loadFxChart(); finLoaded.devises = 1; }
     if (tab === 'macro' && !finLoaded.macro) { loadMacro(); finLoaded.macro = 1; }
   });

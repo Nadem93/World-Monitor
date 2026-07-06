@@ -23,6 +23,8 @@ export const API = {
   fx:      'https://api.frankfurter.dev/v1/latest',
   fxBase:  'https://api.frankfurter.dev/v1',
   treasury: 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od',
+  pyth:      'https://hermes.pyth.network/v2/updates/price/latest',
+  pythHist:  'https://benchmarks.pyth.network/v1/shims/tradingview/history',
   fng:     'https://api.alternative.me/fng/?limit=1',
   meteo:   'https://api.open-meteo.com/v1/forecast',
   hnTop:   'https://hacker-news.firebaseio.com/v0/topstories.json',
@@ -46,6 +48,43 @@ export const CRYPTO = [
 
 // Devises affichées dans la grille (base EUR)
 export const FX_SYMBOLS = ['USD', 'GBP', 'JPY', 'CHF', 'CNY', 'CAD'];
+
+// Bourse & matières premières — flux du réseau Pyth (données publiques temps réel)
+// Chaque actif : identifiant de flux, symbole TradingView, libellé FR, unité.
+export const PYTH_GROUPS = [
+  {
+    id: 'indices', label: 'Indices mondiaux (ETF)',
+    assets: [
+      { id: '19e09bb805456ada3979a7d1cbb4b6d63babc3a0f8e8a9509f68afa5c4c11cd5', sym: 'Equity.US.SPY/USD',  code: 'SPY', name: 'S&P 500' },
+      { id: '9695e2b96ea7b3859da9ed25b7a46a920a776e2fdae19a7bcfdf2b219230452d', sym: 'Equity.US.QQQ/USD',  code: 'QQQ', name: 'Nasdaq 100' },
+      { id: '57cff3a9a4d4c87b595a2d1bd1bac0240400a84677366d632ab838bbbe56f763', sym: 'Equity.US.DIA/USD',  code: 'DIA', name: 'Dow Jones' },
+      { id: 'd407e68cec58205be82a6140a668dc42f8d9079bcf3be4aa4b41f41f7b983035', sym: 'Equity.US.EEM/USD',  code: 'EEM', name: 'Marchés émergents' },
+    ],
+  },
+  {
+    id: 'actions', label: 'Grandes valeurs américaines',
+    assets: [
+      { id: '49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688', sym: 'Equity.US.AAPL/USD',  code: 'AAPL',  name: 'Apple' },
+      { id: 'd0ca23c1cc005e004ccf1db5bf76aeb6a49218f43dac3d4b275e92de12ded4d1', sym: 'Equity.US.MSFT/USD',  code: 'MSFT',  name: 'Microsoft' },
+      { id: 'b1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593', sym: 'Equity.US.NVDA/USD',  code: 'NVDA',  name: 'Nvidia' },
+      { id: '5a48c03e9b9cb337801073ed9d166817473697efff0d138874e0f6a33d6d5aa6', sym: 'Equity.US.GOOGL/USD', code: 'GOOGL', name: 'Alphabet (Google)' },
+      { id: 'b5d0e0fa58a1f8b81498ae670ce93c872d14434b72c364885d4fa1b257cbb07a', sym: 'Equity.US.AMZN/USD',  code: 'AMZN',  name: 'Amazon' },
+      { id: '78a3e3b8e676a8f73c439f5d749737034b139bbbe899ba5775216fba596607fe', sym: 'Equity.US.META/USD',  code: 'META',  name: 'Meta (Facebook)' },
+      { id: '16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1', sym: 'Equity.US.TSLA/USD',  code: 'TSLA',  name: 'Tesla' },
+    ],
+  },
+  {
+    id: 'matieres', label: 'Matières premières',
+    assets: [
+      { id: '765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2', sym: 'Metal.XAU/USD',         code: 'OR',      name: 'Or (once)' },
+      { id: 'f2fb02c32b055c805e7238d628e5e9dadef274376114eb1f012337cabe93871e', sym: 'Metal.XAG/USD',         code: 'ARGENT',  name: 'Argent (once)' },
+      { id: '398e4bbc7cbf89d6648c21e08019d878967677753b3096799595c78f805a34e5', sym: 'Metal.XPT/USD',         code: 'PLATINE', name: 'Platine (once)' },
+      { id: '80367e9664197f37d89a07a804dffd2101c479c7c4e8490501bc9d9e1e7f9021', sym: 'Metal.XPD/USD',         code: 'PALLAD.', name: 'Palladium (once)' },
+      { id: '925ca92ff005ae943c158e3563f59698ce7e75c5a8c8dd43303a0a154887b3e6', sym: 'Commodities.USOILSPOT', code: 'WTI',     name: 'Pétrole WTI (baril)' },
+      { id: '27f0d5e09a830083e5491795cac9ca521399c8f7fd56240d09484b14e614d57a', sym: 'Commodities.UKOILSPOT', code: 'BRENT',   name: 'Pétrole Brent (baril)' },
+    ],
+  },
+];
 
 // Devises proposées dans le convertisseur (code → libellé FR)
 export const CONVERT_CURRENCIES = {
